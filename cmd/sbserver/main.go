@@ -198,6 +198,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/google/safebrowsing"
 	pb "github.com/google/safebrowsing/internal/safebrowsing_proto"
@@ -218,6 +219,10 @@ const (
 const (
 	mimeJSON  = "application/json"
 	mimeProto = "application/x-protobuf"
+)
+
+const (
+	hashLookupSkipHeader = "X-HashLookup-Skip"
 )
 
 var (
@@ -368,6 +373,12 @@ func serveLookups(resp http.ResponseWriter, req *http.Request, sb *safebrowsing.
 	// Lookup the URLs.
 	utss, err := sb.LookupURLsContext(req.Context(), urls)
 	if err != nil {
+		if strings.Contains(err.Error(), "skip: backoff") {
+			// return empty detection with extra header value to notice client
+			resp.Header().Set(hashLookupSkipHeader, "true")
+			resp.Write([]byte(`{}`))
+			return
+		}
 		http.Error(resp, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -473,6 +484,10 @@ func serveRedirector(resp http.ResponseWriter, req *http.Request, sb *safebrowsi
 	}
 	threats, err := sb.LookupURLsContext(req.Context(), []string{rawURL})
 	if err != nil {
+		if strings.Contains(err.Error(), "skip: backoff") {
+			// return with extra header value to notice client
+			resp.Header().Set(hashLookupSkipHeader, "true")
+		}
 		http.Error(resp, err.Error(), http.StatusInternalServerError)
 		return
 	}

@@ -74,9 +74,11 @@ package safebrowsing
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"sync/atomic"
 	"time"
 
@@ -282,11 +284,13 @@ type SafeBrowser struct {
 
 // Stats records statistics regarding SafeBrowser's operation.
 type Stats struct {
-	QueriesByDatabase int64         // Number of queries satisfied by the database alone
-	QueriesByCache    int64         // Number of queries satisfied by the cache alone
-	QueriesByAPI      int64         // Number of queries satisfied by an API call
-	QueriesFail       int64         // Number of queries that could not be satisfied
-	DatabaseUpdateLag time.Duration // Duration since last *missed* update. 0 if next update is in the future.
+	QueriesByDatabase  int64         // Number of queries satisfied by the database alone
+	QueriesByCache     int64         // Number of queries satisfied by the cache alone
+	QueriesByAPI       int64         // Number of queries satisfied by an API call
+	QueriesFail        int64         // Number of queries that could not be satisfied
+	QueriesByAPISkip   int64         // Number of queries that not sending requests for full hashes due to backoff mode
+	FullHashWakeUpTime int64         // Time(Unix) that server can sending requests for full hashes again
+	DatabaseUpdateLag  time.Duration // Duration since last *missed* update. 0 if next update is in the future.
 }
 
 // NewSafeBrowser creates a new SafeBrowser.
@@ -356,11 +360,13 @@ func NewSafeBrowser(conf Config) (*SafeBrowser, error) {
 // after some period.
 func (sb *SafeBrowser) Status() (Stats, error) {
 	stats := Stats{
-		QueriesByDatabase: atomic.LoadInt64(&sb.stats.QueriesByDatabase),
-		QueriesByCache:    atomic.LoadInt64(&sb.stats.QueriesByCache),
-		QueriesByAPI:      atomic.LoadInt64(&sb.stats.QueriesByAPI),
-		QueriesFail:       atomic.LoadInt64(&sb.stats.QueriesFail),
-		DatabaseUpdateLag: sb.db.UpdateLag(),
+		QueriesByDatabase:  atomic.LoadInt64(&sb.stats.QueriesByDatabase),
+		QueriesByCache:     atomic.LoadInt64(&sb.stats.QueriesByCache),
+		QueriesByAPI:       atomic.LoadInt64(&sb.stats.QueriesByAPI),
+		QueriesFail:        atomic.LoadInt64(&sb.stats.QueriesFail),
+		QueriesByAPISkip:   atomic.LoadInt64(&sb.stats.QueriesByAPISkip),
+		FullHashWakeUpTime: atomic.LoadInt64(&sb.stats.FullHashWakeUpTime),
+		DatabaseUpdateLag:  sb.db.UpdateLag(),
 	}
 	return stats, sb.db.Status()
 }
@@ -505,11 +511,34 @@ func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (th
 
 	// Actually query the Safe Browsing API for exact full hash matches.
 	if len(req.ThreatInfo.ThreatEntries) != 0 {
+		// check if server is in backoff mode
+		if wakeUpTime := atomic.LoadInt64(&sb.stats.FullHashWakeUpTime); wakeUpTime > time.Now().Unix() {
+			// log wakeuptime in RFC3339 format
+			sb.log.Printf("HashLookup skip: backoff, wakeuptime: %s", (time.Unix(0, wakeUpTime)).Format(time.RFC3339))
+			atomic.AddInt64(&sb.stats.QueriesByAPISkip, 1)
+			// return wakeuptime in unix(int)
+			return threats, fmt.Errorf("HashLookup skip: backoff, wakeuptime: %d", wakeUpTime)
+		}
+
 		resp, err := sb.api.HashLookup(ctx, req)
 		if err != nil {
 			sb.log.Printf("HashLookup failure: %v", err)
 			atomic.AddInt64(&sb.stats.QueriesFail, 1)
-			return threats, err
+
+			// If receive non-200, backoff with strategy: MIN((2**N-1 * 15 minutes) * (RAND + 1), 24 hours)
+			// N is always set to 1 here, can be modified for your own need
+			delay := time.Duration(float64(1) * (rand.Float64() + 1) * float64(baseRetryDelay))
+			if delay > maxRetryDelay {
+				delay = maxRetryDelay
+			}
+			nextWakeUpTime := time.Now().Add(delay)
+			atomic.StoreInt64(&sb.stats.FullHashWakeUpTime, nextWakeUpTime.Unix())
+			// log wakeuptime in RFC3339 format
+			sb.log.Printf("HashLookup failure: %s, wakeuptime: %s", err.Error(), nextWakeUpTime.Format(time.RFC3339))
+			// return statuscode and wakeuptime in unix(int)
+			// if remote server return with non-200 code, error message format:
+			// 	HashLookup failure: safebrowsing: unexpected server response code: 403, wakeuptime: 1257894000
+			return threats, fmt.Errorf("HashLookup failure: %s, wakeuptime: %d", err.Error(), nextWakeUpTime.Unix())
 		}
 
 		// Update the cache.
@@ -541,6 +570,15 @@ func (sb *SafeBrowser) LookupURLsContext(ctx context.Context, urls []string) (th
 			}
 		}
 		atomic.AddInt64(&sb.stats.QueriesByAPI, 1)
+
+		// If receiving response with 'MinimumWaitDuration' field, it would set wakuptime
+		// and the server would enter into backoff mode
+		if minWait := resp.GetMinimumWaitDuration(); minWait != nil {
+			wait := time.Duration(resp.MinimumWaitDuration.Seconds)*time.Second + time.Duration(resp.MinimumWaitDuration.Nanos)
+			nextWakeUpTime := time.Now().Add(wait)
+			atomic.StoreInt64(&sb.stats.FullHashWakeUpTime, nextWakeUpTime.Unix())
+			sb.log.Printf("Enter into backoff mode with wakeuptime: %s", nextWakeUpTime.Format(time.RFC3339))
+		}
 	}
 	return threats, nil
 }
