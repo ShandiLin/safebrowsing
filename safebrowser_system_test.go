@@ -25,9 +25,9 @@ import (
 	"testing"
 	"time"
 
+	pb "github.com/ShandiLin/safebrowsing/internal/safebrowsing_proto"
 	"github.com/golang/protobuf/proto"
 	google_protobuf "github.com/golang/protobuf/ptypes/duration"
-	pb "github.com/google/safebrowsing/internal/safebrowsing_proto"
 )
 
 // The system tests below are non-deterministic and operate by performing

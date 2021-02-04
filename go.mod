@@ -1,4 +1,4 @@
-module github.com/google/safebrowsing
+module github.com/ShandiLin/safebrowsing
 
 require (
 	github.com/golang/protobuf v1.2.0

@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/google/safebrowsing.svg?branch=master)](https://travis-ci.org/google/safebrowsing)
+[![Build Status](https://travis-ci.org/ShandiLin/safebrowsing.svg?branch=master)](https://travis-ci.org/ShandiLin/safebrowsing)
 
 # Reference Implementation for the Usage of Google Safe Browsing APIs (v4)
 
@@ -28,10 +28,10 @@ documentation.
 To download and install from the source, run the following command:
 
 ```
-go get github.com/google/safebrowsing
+go get github.com/ShandiLin/safebrowsing
 ```
 
-The programs below execute from your `$GOPATH/bin` folder. 
+The programs below execute from your `$GOPATH/bin` folder.
 Add that to your `$PATH` for convenience:
 
 ```
@@ -47,14 +47,14 @@ users to check URLs via a simple JSON API.
 1.	Once the Go environment is setup, run the following command with your API key:
 
 	```
-	go get github.com/google/safebrowsing/cmd/sbserver
+	go get github.com/ShandiLin/safebrowsing/cmd/sbserver
 	sbserver -apikey $APIKEY
 	```
 
 	With the default settings this will start a local server at **127.0.0.1:8080**.
 
-2.  The server also uses an URL redirector (listening on `/r`) to show an interstitial for anything marked unsafe.  
-If the URL is safe, the client is automatically redirected to the target. Else, an interstitial warning page is shown as recommended by Safe Browsing.  
+2.  The server also uses an URL redirector (listening on `/r`) to show an interstitial for anything marked unsafe.
+If the URL is safe, the client is automatically redirected to the target. Else, an interstitial warning page is shown as recommended by Safe Browsing.
 Try these URLs:
 
 	```
@@ -64,7 +64,7 @@ Try these URLs:
 	127.0.0.1:8080/r?url=http://www.google.com/
 	```
 
-3.	The server also has a lightweight implementation of the API v4 threatMatches endpoint.  
+3.	The server also has a lightweight implementation of the API v4 threatMatches endpoint.
 To use the local proxy server to check a URL, send a POST request to `127.0.0.1:8080/v4/threatMatches:find` with the following JSON body:
 
 	```json
@@ -91,7 +91,7 @@ Browsing library can be used to protect users from unsafe URLs. This
 command-line tool filters unsafe URLs piped via STDIN. Example usage:
 
 ```
-$ go get github.com/google/safebrowsing/cmd/sblookup
+$ go get github.com/ShandiLin/safebrowsing/cmd/sblookup
 $ echo "http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/" | sblookup -apikey=$APIKEY
   Unsafe URL found:  http://testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/ [{testsafebrowsing.appspot.com/apiv4/ANY_PLATFORM/MALWARE/URL/ {MALWARE ANY_PLATFORM URL}}]
 ```
@@ -102,5 +102,5 @@ To perform an end-to-end test on the package with the Safe Browsing backend,
 run the following command:
 
 ```
-go test github.com/google/safebrowsing -v -run TestSafeBrowser -apikey $APIKEY
+go test github.com/ShandiLin/safebrowsing -v -run TestSafeBrowser -apikey $APIKEY
 ```
